@@ -1,0 +1,17 @@
+venv/
+venv2/
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Environment variables (NEVER commit secrets)
+.env
+
+# Archives
+*.tar.gz
+
+# IDE
+.vscode/
+.idea/
