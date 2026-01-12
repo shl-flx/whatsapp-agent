@@ -37,10 +37,7 @@ async def verify_webhook(
 
 
 async def get_ai_response(user_message: str) -> str:
-    """
-    Send message to OpenAI and get response.
-    Returns error message if connection fails.
-    """
+    
     try:
         response = openai_client.chat.completions.create(
             model="gpt-4.1-mini",
