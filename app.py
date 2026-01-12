@@ -63,7 +63,7 @@ async def get_ai_response(user_message: str) -> str:
         
     except Exception as e:
         logger.error(f"OpenAI Error: {type(e).__name__}: {e}")
-        return "Sorry, I'm having trouble connecting to my brain right now. Please try again in a moment! 🤖"
+        return "Sorry, I'm having trouble connecting to my brain right now. Please try again in a moment!"
 
 
 
