@@ -20,7 +20,8 @@ logger = logging.getLogger("whatsapp-webhook")
 app = FastAPI(title="WhatsApp Webhook - Minimal")
 
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
-
+conversation_memory = {}
+MAX_HISTORY = 10
 
 
 
@@ -36,22 +37,34 @@ async def verify_webhook(
     raise HTTPException(status_code=403)
 
 
-async def get_ai_response(user_message: str) -> str:
-    """
-    Send message to OpenAI and get response.
-    Returns error message if connection fails.
-    """
+async def get_ai_response(user_phone: str, user_message: str) -> str:
+    
     try:
+        
+        if user_phone not in conversation_memory:
+            conversation_memory[user_phone] = []
+        
+        conversation_memory[user_phone].append({"role": "user", "content": user_message})
+        
+        if len(conversation_memory[user_phone]) > MAX_HISTORY:
+            conversation_memory[user_phone] = conversation_memory[user_phone][-MAX_HISTORY:]
+        
+        messages = [
+            {"role": "system", "content": "You are a helpful WhatsApp assistant. Keep responses brief and friendly."}
+        ] + conversation_memory[user_phone]
+        
         response = openai_client.chat.completions.create(
             model="gpt-4.1-mini",
-            messages=[
-                {"role": "system", "content": "You are a helpful WhatsApp assistant. Keep responses brief and friendly."},
-                {"role": "user", "content": user_message}
-            ],
-            max_tokens=150, 
+            messages=messages,
+            max_tokens=150,
             temperature=0.7
         )
         
+        assistant_message = response.choices[0].message.content
+        conversation_memory[user_phone].append({"role": "assistant", "content": assistant_message})
+        
+        if len(conversation_memory[user_phone]) > MAX_HISTORY:
+            conversation_memory[user_phone] = conversation_memory[user_phone][-MAX_HISTORY:]
         
         prompt_cost = (response.usage.prompt_tokens / 1_000_000) * 0.80
         completion_cost = (response.usage.completion_tokens / 1_000_000) * 3.20
@@ -61,12 +74,13 @@ async def get_ai_response(user_message: str) -> str:
                     f"Completion: {response.usage.completion_tokens} tokens, "
                     f"Total: {response.usage.total_tokens} tokens")
         logger.info(f"Cost: ${total_cost:.6f} (Prompt: ${prompt_cost:.6f}, Completion: ${completion_cost:.6f})")
+        logger.info(f"Conversation history length for {user_phone}: {len(conversation_memory[user_phone])} messages")
         
-        return response.choices[0].message.content
+        return assistant_message
         
     except Exception as e:
         logger.error(f"OpenAI Error: {type(e).__name__}: {e}")
-        return "Sorry, I'm having trouble connecting to my brain right now. Please try again in a moment! 🤖"
+        return "Sorry, I'm having trouble connecting to my brain right now. Please try again in a moment"
 
 
 
@@ -80,7 +94,7 @@ async def receive_webhook(request: Request):
         message = payload["entry"][0]["changes"][0]["value"]["messages"][0]
         sender = message["from"]
         text = message.get("text", {}).get("body", "")
-        ai_response = await get_ai_response(text)
+        ai_response = await get_ai_response(sender, text)
         await send_text_message(sender, ai_response)
     except (KeyError, IndexError):
         pass
