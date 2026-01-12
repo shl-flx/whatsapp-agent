@@ -4,17 +4,24 @@ import httpx
 from fastapi import FastAPI, Request, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 from dotenv import load_dotenv
+from openai import OpenAI
 
 load_dotenv()
 
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
 ACCESS_TOKEN = os.getenv("WHATSAPP_ACCESS_TOKEN")      
 PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")  
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("whatsapp-webhook")
 
 app = FastAPI(title="WhatsApp Webhook - Minimal")
+
+openai_client = OpenAI(api_key=OPENAI_API_KEY)
+
+
 
 
 @app.get("/webhook")
@@ -29,6 +36,40 @@ async def verify_webhook(
     raise HTTPException(status_code=403)
 
 
+async def get_ai_response(user_message: str) -> str:
+    """
+    Send message to OpenAI and get response.
+    Returns error message if connection fails.
+    """
+    try:
+        response = openai_client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=[
+                {"role": "system", "content": "You are a helpful WhatsApp assistant. Keep responses brief and friendly."},
+                {"role": "user", "content": user_message}
+            ],
+            max_tokens=150, 
+            temperature=0.7
+        )
+        
+        
+        prompt_cost = (response.usage.prompt_tokens / 1_000_000) * 0.80
+        completion_cost = (response.usage.completion_tokens / 1_000_000) * 3.20
+        total_cost = prompt_cost + completion_cost
+
+        logger.info(f"OpenAI Usage - Prompt: {response.usage.prompt_tokens} tokens, "
+                    f"Completion: {response.usage.completion_tokens} tokens, "
+                    f"Total: {response.usage.total_tokens} tokens")
+        logger.info(f"Cost: ${total_cost:.6f} (Prompt: ${prompt_cost:.6f}, Completion: ${completion_cost:.6f})")
+        
+        return response.choices[0].message.content
+        
+    except Exception as e:
+        logger.error(f"OpenAI Error: {type(e).__name__}: {e}")
+        return "Sorry, I'm having trouble connecting to my brain right now. Please try again in a moment! 🤖"
+
+
+
 @app.post("/webhook")
 async def receive_webhook(request: Request):
     payload = await request.json()
@@ -39,11 +80,10 @@ async def receive_webhook(request: Request):
         message = payload["entry"][0]["changes"][0]["value"]["messages"][0]
         sender = message["from"]
         text = message.get("text", {}).get("body", "")
-        
-        await send_text_message(sender, f"You said: {text}")
+        ai_response = await get_ai_response(text)
+        await send_text_message(sender, ai_response)
     except (KeyError, IndexError):
-        pass  
-    
+        pass
     return {"status": "ok"}
 
 
